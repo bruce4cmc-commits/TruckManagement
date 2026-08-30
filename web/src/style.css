@@ -98,3 +98,150 @@ body { font-family: var(--font-family); background: var(--bg-gradient); color: v
 .spinner { width: 20px; height: 20px; border: 2px solid rgba(147, 197, 253, 0.3); border-top-color: #60a5fa; border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* COLLAPSIBLE CARDS & FORM STYLES */
+.collapsible-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  margin-bottom: 1rem;
+  overflow: hidden;
+  transition: border-color 0.2s ease;
+}
+.collapsible-card:last-child {
+  margin-bottom: 0;
+}
+.section-toggle {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.85rem 1.15rem;
+  background: rgba(15, 23, 42, 0.5);
+  border: none;
+  border-bottom: 1px solid var(--card-border);
+  color: #f8fafc;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.2s ease;
+}
+.section-toggle:hover {
+  background: rgba(30, 41, 59, 0.9);
+}
+.collapsible-card.collapsed .section-toggle {
+  border-bottom: none;
+}
+.toggle-icon {
+  font-size: 0.9rem;
+  color: var(--primary);
+  font-weight: 700;
+  user-select: none;
+}
+.section-body {
+  padding: 1.15rem;
+}
+.section-body[hidden] {
+  display: none !important;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.form-group label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+.form-control {
+  background: #0f172a;
+  border: 1px solid var(--card-border);
+  color: #ffffff;
+  padding: 0.55rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-family: inherit;
+}
+.form-control:focus {
+  border-color: var(--primary);
+  outline: none;
+}
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+.margin-top {
+  margin-top: 1rem;
+}
+
+/* DUAL LOGIN GRID STYLES */
+.login-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+}
+.login-block {
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+}
+.login-block h3 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #f8fafc;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--card-border);
+}
+
+/* Period Filter Buttons for Logistics Trip Execution Table */
+.period-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.period-filter-btn {
+  padding: 0.45rem 1.1rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  border-radius: 6px;
+  border: 1px solid var(--card-border);
+  background: rgba(30, 41, 59, 0.5);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.period-filter-btn:hover {
+  background: rgba(51, 65, 85, 0.8);
+  color: #ffffff;
+}
+
+.period-filter-btn.active {
+  background: var(--primary);
+  color: #ffffff;
+  border-color: var(--primary);
+  font-weight: 600;
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.45);
+}
+
+.period-range-display {
+  font-size: 0.85rem;
+  color: var(--primary);
+  font-weight: 500;
+  background: rgba(30, 41, 59, 0.6);
+  padding: 0.35rem 0.75rem;
+  border-radius: 4px;
+  border: 1px solid var(--card-border);
+}
+
+

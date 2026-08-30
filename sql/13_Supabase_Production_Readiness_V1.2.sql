@@ -145,11 +145,8 @@ exception when others then
   null; -- 若非 Cloud/DB 超級權限環境，忽略排程註冊
 end $$;
 
--- 授權 EXECUTE 權限
-revoke all on function public.check_trip_overtime() from public;
-grant execute on function public.check_trip_overtime() to authenticated;
-
-revoke all on function public.check_departure_reminders() from public;
-grant execute on function public.check_departure_reminders() to authenticated;
+-- 權限收緊：Cron / Internal 專用 Function 限制，禁止外部 RPC 直接調用
+revoke all on function public.check_trip_overtime() from public, anon, authenticated;
+revoke all on function public.check_departure_reminders() from public, anon, authenticated;
 
 commit;

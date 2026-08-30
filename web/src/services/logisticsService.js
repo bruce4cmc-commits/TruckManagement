@@ -1,6 +1,17 @@
 import { supabase } from '../config/supabase.js'
 
 /**
+ * Batch Create Trip Plans (Excel V1.0)
+ */
+export async function batchCreateTrips(items) {
+  const { data, error } = await supabase.rpc('batch_create_trips', {
+    p_items: items
+  })
+  if (error) throw new Error(`批次建立 Trip 失敗: ${error.message}`)
+  return data
+}
+
+/**
  * Create a new Trip plan
  */
 export async function createTrip({ planDate, planDeparture, truckId, driverId, planType = 'NORMAL', forceSave = false }) {
@@ -88,19 +99,7 @@ export async function autoAssignTrucks({ planDate }) {
   return data
 }
 
-/**
- * Manual Add Event (補正漏掃)
- */
-export async function manualAddTripEvent({ tripId, eventCode, eventTime }) {
-  const { data, error } = await supabase.rpc('manual_add_trip_event', {
-    p_trip_id: tripId,
-    p_event_code: eventCode,
-    p_event_time: eventTime
-  })
 
-  if (error) throw new Error(`人工補正失敗: ${error.message}`)
-  return data
-}
 
 /**
  * Correct Existing Event Time (更正 Event)
@@ -129,6 +128,15 @@ export async function getEffectiveTripEvents(tripId) {
 }
 
 /**
+ * Fetch truck_master with default_driver_id for authenticated Logistics users
+ */
+export async function getLogisticsTrucks() {
+  const { data, error } = await supabase.from('truck_master').select('*').order('sort_order')
+  if (error) throw error
+  return data
+}
+
+/**
  * Fetch Today's Vehicle Status for Logistics Dashboard UI
  */
 export async function getLogisticsTodayStatus() {
@@ -144,6 +152,7 @@ export async function getLogisticsTodayStatus() {
   return { trucks, statuses, plans }
 }
 
+
 /**
  * Fetch Weekly Trip Plan (Monday to Saturday)
  */
@@ -157,6 +166,33 @@ export async function getWeeklyTripPlan(weekStartDate) {
     .lte('plan_date', endDate)
     .order('plan_date', { ascending: true })
     .order('trip_no', { ascending: true })
+
+  if (error) throw error
+  return data
+}
+
+/**
+ * Fetch driver_master for authenticated Logistics users
+ */
+export async function getLogisticsDrivers() {
+  const { data, error } = await supabase.from('driver_master').select('*')
+  if (error) throw error
+  return data
+}
+
+/**
+ * Fetch Trip Execution Plan by Date Range (startDate ~ endDate)
+ */
+export async function getTripExecutionByRange(startDate, endDate) {
+  const { data, error } = await supabase
+    .from('trip_plan')
+    .select('*')
+    .gte('plan_date', startDate)
+    .lte('plan_date', endDate)
+    .order('plan_date', { ascending: true })
+    .order('plan_departure', { ascending: true })
+    .order('truck_id', { ascending: true })
+    .order('trip_id', { ascending: true })
 
   if (error) throw error
   return data

@@ -24,9 +24,16 @@ end $$;
 -- 2. SECURITY DEFINER Functions 權限終極收緊
 -- ============================================================
 
--- 收緊 Cron / Internal 專用 Functions
-revoke execute on function public.check_trip_overtime() from public, anon, authenticated;
-revoke execute on function public.check_departure_reminders() from public, anon, authenticated;
+-- 安全收緊 Cron / Internal 專用 Functions
+do $$
+begin
+  if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'check_trip_overtime') then
+    revoke execute on function public.check_trip_overtime() from public, anon, authenticated;
+  end if;
+  if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'check_departure_reminders') then
+    revoke execute on function public.check_departure_reminders() from public, anon, authenticated;
+  end if;
+end $$;
 
 -- 確保所有端點 RPC 撤銷 PUBLIC 權限
 revoke execute on function public.get_public_active_trucks() from public;

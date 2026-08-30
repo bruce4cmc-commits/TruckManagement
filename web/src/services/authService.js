@@ -55,9 +55,14 @@ export async function getCurrentUserProfile() {
     .from('user_master')
     .select('user_id, user_name, login_name, role, active, auth_user_id')
     .eq('auth_user_id', authUserId)
-    .single()
+    .maybeSingle()
 
-  if (userData && !userErr) {
+  if (userErr) {
+    console.error('user_master profile query failed:', userErr.message)
+    throw userErr
+  }
+
+  if (userData) {
     currentUserProfile = {
       type: 'MANAGEMENT',
       id: userData.user_id,
@@ -76,9 +81,14 @@ export async function getCurrentUserProfile() {
     .from('driver_master')
     .select('driver_id, driver_name, default_truck_id, active, auth_user_id')
     .eq('auth_user_id', authUserId)
-    .single()
+    .maybeSingle()
 
-  if (driverData && !driverErr) {
+  if (driverErr) {
+    console.error('driver_master profile query failed:', driverErr.message)
+    throw driverErr
+  }
+
+  if (driverData) {
     currentUserProfile = {
       type: 'DRIVER',
       id: driverData.driver_id,
@@ -112,17 +122,34 @@ export async function getCurrentUserProfile() {
 export async function loginDriver(driverId, password) {
   const internalEmail = getDriverInternalEmail(driverId)
 
+  console.log('[DEBUG DRIVER LOGIN] selected truck value:', driverId)
+  console.log('[DEBUG DRIVER LOGIN] mapped email:', internalEmail)
+
   const { data, error } = await supabase.auth.signInWithPassword({
     email: internalEmail,
     password
   })
 
   if (error) {
+    console.log('[DEBUG DRIVER LOGIN] Supabase Auth 是否成功: false')
+    console.log('[DEBUG DRIVER LOGIN] error.message:', error.message)
     throw new Error(`司機登入失敗：${error.message === 'Invalid login credentials' ? '車號或密碼錯誤' : error.message}`)
   }
 
+  console.log('[DEBUG DRIVER LOGIN] Supabase Auth 是否成功: true')
+  console.log('[DEBUG DRIVER LOGIN] session.user.id:', data.session.user.id)
+
   currentSession = data.session
   const profile = await getCurrentUserProfile()
+  console.log('[DEBUG DRIVER LOGIN] driver profile lookup 結果:', {
+    type: profile ? profile.type : null,
+    id: profile ? profile.id : null,
+    name: profile ? profile.name : null,
+    role: profile ? profile.role : null,
+    defaultTruckId: profile ? profile.defaultTruckId : null,
+    authUserId: profile ? profile.authUserId : null
+  })
+
   return { session: data.session, profile }
 }
 

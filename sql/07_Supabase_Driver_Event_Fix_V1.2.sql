@@ -26,6 +26,8 @@ alter table public.trip_event
 -- 2. 重建 scan_trip_event() RPC (修復邏輯與冪等性)
 -- ============================================================
 
+drop function if exists public.scan_trip_event(text, timestamptz, boolean, boolean);
+
 create or replace function public.scan_trip_event(
   p_event_code text,
   p_scan_time timestamptz default now(),
