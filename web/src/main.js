@@ -1,5 +1,6 @@
 import './style.css'
 import { supabase } from './config/supabase.js'
+import { getTaipeiYMD } from './utils/dateUtils.js'
 import { getActiveTrucks } from './services/truckService.js'
 import {
   loginDriver,
@@ -78,6 +79,32 @@ export function formatTime24(dateVal) {
   }
   const d = new Date(dateVal)
   if (isNaN(d.getTime())) return '-'
+  const hours = String(d.getHours()).padStart(2, '0')
+  const minutes = String(d.getMinutes()).padStart(2, '0')
+  return `${hours}:${minutes}`
+}
+
+/**
+ * Helper to add minutes to a time string or date value and format as HH:mm
+ * Handles midnight rollover correctly (e.g., 23:30 + 60 min -> 00:30)
+ */
+export function addMinutesToTime(dateVal, minutesToAdd) {
+  if (!dateVal) return '---'
+  let d = null
+
+  if (typeof dateVal === 'string') {
+    const timeMatch = dateVal.trim().match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/)
+    if (timeMatch) {
+      d = new Date()
+      d.setHours(parseInt(timeMatch[1], 10), parseInt(timeMatch[2], 10), 0, 0)
+    }
+  }
+  if (!d) {
+    d = new Date(dateVal)
+  }
+  if (isNaN(d.getTime())) return '---'
+
+  d.setMinutes(d.getMinutes() + minutesToAdd)
   const hours = String(d.getHours()).padStart(2, '0')
   const minutes = String(d.getMinutes()).padStart(2, '0')
   return `${hours}:${minutes}`
@@ -308,7 +335,7 @@ async function renderApp() {
     if (currentProfile.role === 'DRIVER') {
       console.log('[DEBUG UI LOGIN] selected route: DRIVER UI')
       closeAndRemoveQrModals()
-      renderQrModals() // Mount #qr-modal and #confirm-modal into DOM ONLY for DRIVER
+      renderConfirmModal() // Mount #confirm-modal into DOM ONLY for DRIVER
       
       // Mount DRIVER view into DOM (Unmount Supervisor Dashboard & Logistics Management completely)
       roleViewContainer.innerHTML = `
@@ -641,7 +668,7 @@ async function bindLogisticsHandlers() {
 
   // 3. Set default date to today & departure time to current time
   const now = new Date()
-  const todayStr = now.toISOString().split('T')[0]
+  const todayStr = getTaipeiYMD(now)
   const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
 
   const createDateInput = document.querySelector('#create-trip-date')
@@ -1085,158 +1112,34 @@ async function handleCancelTrip(tripId) {
 }
 
 /**
- * Role-Based Conditional Render for QR Modals (DRIVER only)
+ * Role-Based Conditional Render for Out-of-Sequence Confirmation Modal (DRIVER only)
  */
-function renderQrModals() {
+function renderConfirmModal() {
   const container = document.querySelector('#qr-modals-container')
   if (!container) return
 
   container.innerHTML = `
-    <!-- QR SCANNER MODAL -->
-    <div id="qr-modal" class="modal-backdrop">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3>掃描作業節點 QR Code</h3>
-          <button id="close-qr-modal" class="modal-close-btn">&times;</button>
-        </div>
-        <div class="modal-body">
-          <!-- ① 作業提醒（掃錯 QR Code） (置頂最前) -->
-          <div class="qr-warning-section msg-box info margin-bottom" style="margin-bottom: 1.25rem;">
-            <h4 style="margin: 0 0 0.5rem 0; color: var(--info); font-size: 0.95rem;">⚠️ 作業提醒（掃錯 QR Code）：</h4>
-            <p style="margin: 0; font-size: 0.85rem; line-height: 1.4;">
-              若掃描之作業節點與系統預期不符，系統將彈出警告提示。您可以選擇「返回重新掃描」或在確認無誤後點擊「確認本次回報」強制儲存。
-            </p>
-          </div>
-
-          <!-- ② 掃描作業節點 QR Code (僅保留相機預覽與啟動按鈕) -->
-          <div class="camera-scan-section">
-            <h4 style="margin: 0 0 0.75rem 0; font-size: 0.95rem;">掃描作業節點 QR Code</h4>
-            <div class="qr-camera-prototype">
-              <video id="qr-video" style="width: 100%; border-radius: 8px;" autoplay playsinline></video>
-              <div id="camera-status-text" class="placeholder-text margin-top">點擊「啟動手機鏡頭」開啟相機掃碼</div>
-            </div>
-            <button id="btn-start-camera" class="btn btn-secondary btn-block margin-top">啟動手機鏡頭 (Camera API)</button>
-            <div id="qr-scan-msg" class="msg-box margin-top"></div>
-          </div>
-
-          <!-- ③ 模擬 / 手動輸入 QR 字串 (Collapsible Card，7個按鈕與輸入框皆在收合區內) -->
-          <div class="collapsible-card margin-top" id="manual-qr-card" style="border: 1px solid var(--card-border); border-radius: 8px; overflow: hidden;">
-            <div class="card-header section-toggle" id="toggle-manual-qr" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 0.65rem 0.85rem; background: rgba(30, 41, 59, 0.6);">
-              <strong style="font-size: 0.9rem;">模擬 / 手動輸入 QR 字串</strong>
-              <span class="toggle-icon" id="manual-qr-icon" style="font-size: 0.85rem; color: var(--primary);">▶ 展開</span>
-            </div>
-            <div class="section-body" id="manual-qr-body" hidden style="padding: 0.85rem;">
-              <div class="qr-nodes-grid" style="margin-bottom: 1rem;">
-                <button class="qr-node-btn" data-code="YM_OUT">1. 楊梅出廠 (YM_OUT)</button>
-                <button class="qr-node-btn" data-code="HC_IN">2. 新竹入廠 (HC_IN)</button>
-                <button class="qr-node-btn" data-code="HC_WH">3. 新竹庫房 (HC_WH)</button>
-                <button class="qr-node-btn" data-code="HC_OUT">4. 新竹出廠 (HC_OUT)</button>
-                <button class="qr-node-btn" data-code="YM_IN">5. 楊梅入廠 (YM_IN)</button>
-                <button class="qr-node-btn" data-code="YM_ENGINE">6. 楊梅卸引擎 (YM_ENGINE)</button>
-                <button class="qr-node-btn" data-code="YM_CAB">7. 楊梅裝車頭 (YM_CAB)</button>
-              </div>
-              <div class="form-group margin-top">
-                <label for="manual-qr-input">輸入 QR 字串:</label>
-                <div class="input-group">
-                  <input type="text" id="manual-qr-input" class="form-control" placeholder="例: YM_OUT" />
-                  <button id="scan-manual-btn" class="btn btn-primary">送出</button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- OUT OF SEQUENCE CONFIRMATION MODAL -->
     <div id="confirm-modal" class="modal-backdrop">
       <div class="modal-content warning-modal">
         <div class="modal-header">
-          <h3>⚠ 作業提醒（掃錯 QR Code）</h3>
+          <h3>⚠ 作業提醒（非預期節點回報）</h3>
         </div>
         <div class="modal-body text-center">
-          <p class="warning-text">掃描節點與系統預期不一致！</p>
+          <p class="warning-text">回報節點與系統預期不一致！</p>
           <div class="expected-vs-actual">
             <div class="compare-box"><span class="label">預期</span><strong id="expected-node-text" class="value text-success">-</strong></div>
             <div class="compare-arrow">➔</div>
             <div class="compare-box"><span class="label">實際</span><strong id="actual-node-text" class="value text-warning">-</strong></div>
           </div>
           <div class="modal-actions margin-top">
-            <button id="cancel-out-seq-btn" class="btn btn-secondary">返回重新掃描</button>
+            <button id="cancel-out-seq-btn" class="btn btn-secondary">返回</button>
             <button id="force-confirm-seq-btn" class="btn btn-primary">確認本次回報</button>
           </div>
         </div>
       </div>
     </div>
   `
-
-  // Manual QR Collapsible Section Handler
-  const STORAGE_KEY_MANUAL_QR = 'driver.section.manualQr'
-  const isManualQrExpanded = localStorage.getItem(STORAGE_KEY_MANUAL_QR) === 'true'
-  const manualQrBody = document.querySelector('#manual-qr-body')
-  const manualQrIcon = document.querySelector('#manual-qr-icon')
-  const toggleManualQrBtn = document.querySelector('#toggle-manual-qr')
-
-  if (manualQrBody && manualQrIcon) {
-    if (isManualQrExpanded) {
-      manualQrBody.hidden = false
-      manualQrIcon.textContent = '▼ 收合'
-    } else {
-      manualQrBody.hidden = true
-      manualQrIcon.textContent = '▶ 展開'
-    }
-
-    if (toggleManualQrBtn) {
-      toggleManualQrBtn.addEventListener('click', () => {
-        const currentlyHidden = manualQrBody.hidden
-        manualQrBody.hidden = !currentlyHidden
-        const newExpanded = !manualQrBody.hidden
-        manualQrIcon.textContent = newExpanded ? '▼ 收合' : '▶ 展開'
-        localStorage.setItem(STORAGE_KEY_MANUAL_QR, newExpanded)
-      })
-    }
-  }
-
-  // Event Listeners for Driver QR Modals
-  const btnStartCamera = document.querySelector('#btn-start-camera')
-  if (btnStartCamera) {
-    btnStartCamera.addEventListener('click', async () => {
-      const video = document.querySelector('#qr-video')
-      const statusText = document.querySelector('#camera-status-text')
-      if (!statusText || !video) return
-
-      statusText.textContent = '請求開啟相機權限中...'
-      try {
-        mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-        video.srcObject = mediaStream
-        statusText.textContent = '🟢 相機鏡頭已開啟，請對準作業節點 QR Code'
-      } catch (err) {
-        statusText.textContent = `❌ 相機開啟失敗 (Camera Permission Denied): ${err.message}`
-      }
-    })
-  }
-
-  const closeQrModalBtn = document.querySelector('#close-qr-modal')
-  if (closeQrModalBtn) {
-    closeQrModalBtn.addEventListener('click', () => {
-      closeAndRemoveCameraStream()
-      const qrModal = document.querySelector('#qr-modal')
-      if (qrModal) qrModal.classList.remove('active')
-    })
-  }
-
-  document.querySelectorAll('.qr-node-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => { handleScanCode(e.target.getAttribute('data-code')) })
-  })
-
-  const scanManualBtn = document.querySelector('#scan-manual-btn')
-  if (scanManualBtn) {
-    scanManualBtn.addEventListener('click', () => {
-      const input = document.querySelector('#manual-qr-input')
-      const val = input ? input.value.trim() : ''
-      if (val) handleScanCode(val)
-    })
-  }
 
   const forceConfirmBtn = document.querySelector('#force-confirm-seq-btn')
   if (forceConfirmBtn) {
@@ -1251,26 +1154,14 @@ function renderQrModals() {
   if (cancelOutSeqBtn) {
     cancelOutSeqBtn.addEventListener('click', () => {
       const confirmModal = document.querySelector('#confirm-modal')
-      const qrModal = document.querySelector('#qr-modal')
       if (confirmModal) confirmModal.classList.remove('active')
-      if (qrModal) qrModal.classList.add('active')
+      // Restore buttons in DRIVER table
+      document.querySelectorAll('.btn-report-node').forEach(b => { b.disabled = false })
     })
   }
 }
 
-function closeAndRemoveCameraStream() {
-  if (mediaStream) {
-    mediaStream.getTracks().forEach(track => track.stop())
-    mediaStream = null
-  }
-  const video = document.querySelector('#qr-video')
-  if (video) {
-    video.srcObject = null
-  }
-}
-
 function closeAndRemoveQrModals() {
-  closeAndRemoveCameraStream()
   const container = document.querySelector('#qr-modals-container')
   if (container) {
     container.innerHTML = ''
@@ -1608,16 +1499,7 @@ async function renderLogisticsToday() {
  * Calculates Monday ~ Saturday date range for Asia/Taipei timezone.
  */
 export function getLogisticsPeriodDates(periodKey) {
-  const now = new Date()
-
-  const formatYMD = (d) => {
-    const yyyy = d.getFullYear()
-    const mm = String(d.getMonth() + 1).padStart(2, '0')
-    const dd = String(d.getDate()).padStart(2, '0')
-    return `${yyyy}-${mm}-${dd}`
-  }
-
-  const todayYmd = formatYMD(now)
+  const todayYmd = getTaipeiYMD()
 
   if (periodKey === 'today') {
     return {
@@ -1628,18 +1510,19 @@ export function getLogisticsPeriodDates(periodKey) {
   }
 
   // Calculate Monday to Saturday for thisWeek (offset 0) or nextWeek (offset 1)
+  const taipeiDate = new Date(`${todayYmd}T00:00:00+08:00`)
   const offsetWeeks = periodKey === 'nextWeek' ? 1 : 0
-  const day = now.getDay() // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  const day = taipeiDate.getDay() // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
   const diffToMonday = day === 0 ? -6 : 1 - day
 
-  const monday = new Date(now)
-  monday.setDate(now.getDate() + diffToMonday + offsetWeeks * 7)
+  const monday = new Date(taipeiDate)
+  monday.setDate(taipeiDate.getDate() + diffToMonday + offsetWeeks * 7)
 
   const saturday = new Date(monday)
   saturday.setDate(monday.getDate() + 5)
 
-  const startYmd = formatYMD(monday)
-  const endYmd = formatYMD(saturday)
+  const startYmd = getTaipeiYMD(monday)
+  const endYmd = getTaipeiYMD(saturday)
 
   return {
     startDate: startYmd,
@@ -1782,22 +1665,108 @@ async function renderLogisticsExecutionTable(targetPeriod) {
       }))
     )
 
+    // Group valid (non-CANCELLED) plans by plan_date + truck_id to identify the last valid trip & current pending trip
+    const groupMap = new Map()
+    plans.forEach(p => {
+      const pDate = p.plan_date || p.planDate || ''
+      const pTruck = p.truck_id || p.truckId || ''
+      const key = `${pDate}_${pTruck}`
+      if (!groupMap.has(key)) {
+        groupMap.set(key, [])
+      }
+      if (p.trip_status !== 'CANCELLED') {
+        groupMap.get(key).push(p)
+      }
+    })
+
+    const pendingTripMap = new Map()
+    groupMap.forEach((validTrips, key) => {
+      validTrips.sort((a, b) => {
+        const minA = getMinutesOfDay(a.plan_departure || a.planDeparture)
+        const minB = getMinutesOfDay(b.plan_departure || b.planDeparture)
+        if (minA !== minB) return minA - minB
+        return String(a.trip_id || a.tripId).localeCompare(String(b.trip_id || b.tripId))
+      })
+      const firstUnfinished = validTrips.find(t => t.trip_status !== 'COMPLETE' && t.trip_status !== 'COMPLETED')
+      pendingTripMap.set(key, firstUnfinished || null)
+    })
+
     const tableRows = plans.map(p => {
       const st = (statuses || []).find(s => s.truck_id === p.truck_id) || {}
       const pEvents = (effectiveEvents || []).filter(e => e.trip_id === p.trip_id)
       const ymOutEvt = pEvents.find(e => e.event_code === 'YM_OUT')
-
-      const statusText = STATUS_LABELS[p.trip_status] || p.trip_status || '-'
-      const lastEventText = SHORT_EVENT_LABELS[st.last_event_code] || st.last_event_code || '-'
-      const nextEventText = SHORT_EVENT_LABELS[st.next_event_code] || st.next_event_code || '-'
-
-      const isFutureOrUnstarted = p.trip_status === 'WAITING' && pEvents.length === 0
 
       // Map Master Data Names: truck_name & driver_name (with default_driver_id fallback if NULL)
       const truckName = truckMap.get(p.truck_id) || p.truck_id || '-'
       const truckObj = (trucks || []).find(t => t.truck_id === p.truck_id)
       const rawDriverId = p.driver_id || truckObj?.default_driver_id
       const driverName = driverMap.get(rawDriverId) || rawDriverId || '-'
+
+      // Determine '當前狀態' (Operational Status) & '下一預期節點' (Next Expected Node)
+      const pDate = p.plan_date || p.planDate || ''
+      const pTruck = p.truck_id || p.truckId || ''
+      const key = `${pDate}_${pTruck}`
+      const validTrips = groupMap.get(key) || []
+      const lastValidTrip = validTrips.length > 0 ? validTrips[validTrips.length - 1] : null
+      const isLastValidTrip = lastValidTrip && (lastValidTrip.trip_id === p.trip_id)
+      const currentPendingTrip = pendingTripMap.get(key)
+
+      const isCompleted = p.trip_status === 'COMPLETE' || p.trip_status === 'COMPLETED'
+      const isCancelled = p.trip_status === 'CANCELLED'
+      const isCurrentPendingTrip = currentPendingTrip && (currentPendingTrip.trip_id === p.trip_id)
+
+      let hasEarlierUnfinishedTrip = false
+      if (!isCompleted && !isCancelled && currentPendingTrip && currentPendingTrip.trip_id !== p.trip_id) {
+        const pendingIdx = validTrips.findIndex(t => t.trip_id === currentPendingTrip.trip_id)
+        const pIdx = validTrips.findIndex(t => t.trip_id === p.trip_id)
+        if (pIdx > pendingIdx) {
+          hasEarlierUnfinishedTrip = true
+        }
+      }
+
+      let statusDisplay = ''
+      let badgeClass = 'badge-role-default'
+      let nextNodeText = '-'
+
+      if (isCancelled) {
+        statusDisplay = '已取消'
+        badgeClass = 'badge-fail'
+        nextNodeText = '-'
+      } else if (isCompleted) {
+        statusDisplay = '已完成'
+        badgeClass = 'badge-role-driver'
+        if (isLastValidTrip) {
+          nextNodeText = '當日車趟完成'
+        } else {
+          nextNodeText = '已完成'
+        }
+      } else if (isCurrentPendingTrip) {
+        if (pEvents.length === 0) {
+          statusDisplay = STATUS_LABELS[p.trip_status] || '待出發'
+          badgeClass = 'badge-role-default'
+          nextNodeText = '楊梅出廠'
+        } else {
+          statusDisplay = STATUS_LABELS[p.trip_status] || STATUS_LABELS[st.current_status] || p.trip_status || '執行中'
+          badgeClass = 'badge-role-logistics'
+          const nextCode = st.next_event_code
+          nextNodeText = SHORT_EVENT_LABELS[nextCode] || EVENT_CODES[nextCode]?.name || nextCode || '楊梅出廠'
+        }
+      } else if (hasEarlierUnfinishedTrip) {
+        statusDisplay = '待前序趟次'
+        badgeClass = 'badge-role-default'
+        nextNodeText = '待前序趟次'
+      } else {
+        if (pEvents.length === 0) {
+          statusDisplay = '待前序趟次'
+          badgeClass = 'badge-role-default'
+          nextNodeText = '待前序趟次'
+        } else {
+          statusDisplay = STATUS_LABELS[p.trip_status] || STATUS_LABELS[st.current_status] || p.trip_status || '執行中'
+          badgeClass = 'badge-role-logistics'
+          const nextCode = st.next_event_code
+          nextNodeText = SHORT_EVENT_LABELS[nextCode] || EVENT_CODES[nextCode]?.name || nextCode || '楊梅出廠'
+        }
+      }
 
       return `
         <tr>
@@ -1807,9 +1776,8 @@ async function renderLogisticsExecutionTable(targetPeriod) {
           <td>${driverName}</td>
           <td>${formatTime24(p.plan_departure)}</td>
           <td>${ymOutEvt ? formatTime24(ymOutEvt.effective_event_time) : '-'}</td>
-          <td><span class="badge ${p.trip_status === 'COMPLETE' || p.trip_status === 'COMPLETED' ? 'badge-role-driver' : (p.trip_status === 'CANCELLED' ? 'badge-fail' : 'badge-role-default')}">${statusText}</span></td>
-          <td>${isFutureOrUnstarted ? '-' : lastEventText}</td>
-          <td>${isFutureOrUnstarted ? '-' : nextEventText}</td>
+          <td><span class="badge ${badgeClass}">${statusDisplay}</span></td>
+          <td><code>${nextNodeText}</code></td>
           <td>${st.exception_flag ? `<span class="text-warning">⚠️ ${st.exception_type || '作業異常'}</span>` : '-'}</td>
         </tr>
       `
@@ -1827,7 +1795,6 @@ async function renderLogisticsExecutionTable(targetPeriod) {
               <th>計畫發車時間</th>
               <th>實際楊梅出發</th>
               <th>當前狀態</th>
-              <th>最近回報節點</th>
               <th>下一預期節點</th>
               <th>異常狀況</th>
             </tr>
@@ -1849,7 +1816,7 @@ async function renderWeeklyPlan() {
   const container = document.querySelector('#weekly-plan-content')
   if (!container) return
 
-  const todayStr = new Date().toISOString().split('T')[0]
+  const todayStr = getTaipeiYMD()
   try {
     console.log('[DEBUG LOGISTICS] loading weekly plan for date:', todayStr)
     const plans = await getWeeklyTripPlan(todayStr)
@@ -1955,30 +1922,99 @@ async function renderDriverHome() {
       tripProgressText = '今日無排程'
     }
 
-    const nextNodeInfo = isDayEnd
-      ? '當日作業結束'
-      : (homeData.nextEventCode ? (SHORT_EVENT_LABELS[homeData.nextEventCode] || EVENT_CODES[homeData.nextEventCode]?.name || homeData.nextEventCode) : '無')
-
-    const lastEventDisplay = homeData.lastEventCode
-      ? `${SHORT_EVENT_LABELS[homeData.lastEventCode] || homeData.lastEventCode} (${formatTime24(homeData.lastEventTime)})`
-      : '無 (-)'
-
     const planDepartureTimeStr = (isNoTrip || isDayEnd || !homeData.planDeparture)
       ? '-'
       : formatTime24(homeData.planDeparture)
 
-    const statusText = isDayEnd
-      ? '當日作業結束'
-      : (STATUS_LABELS[homeData.currentStatus] || homeData.currentStatus || '-')
+    // Fetch Effective Events for current trip to display precise event times for the 7 control points
+    let effectiveEvents = []
+    if (homeData.currentTripId) {
+      try {
+        effectiveEvents = await getEffectiveTripEvents(homeData.currentTripId)
+      } catch (e) {
+        console.warn('Failed to fetch effective events for driver trip:', e.message)
+      }
+    }
+
+    const completedEventsMap = new Map((effectiveEvents || []).map(e => [e.event_code, e.effective_event_time]))
+
+    // Status badge determination
+    const nextEventName = homeData.nextEventCode
+      ? (SHORT_EVENT_LABELS[homeData.nextEventCode] || EVENT_CODES[homeData.nextEventCode]?.name || homeData.nextEventCode)
+      : '楊梅出廠'
+
+    let statusPillHtml = ''
+    if (isNoTrip) {
+      statusPillHtml = `<div class="status-pill status-yellow">🟡 今日無排程</div>`
+    } else if (isDayEnd) {
+      statusPillHtml = `<div class="status-pill status-green">🟢 當日作業結束</div>`
+    } else if (homeData.exceptionFlag) {
+      statusPillHtml = `<div class="status-pill status-red">⚠️ ${homeData.exceptionType || '作業異常'}</div>`
+    } else {
+      statusPillHtml = `<div class="status-pill status-green">🟢 目前：${nextEventName}待回報</div>`
+    }
+
+    // Fixed 7 Control Points definition with planned time offsets
+    const CONTROL_POINTS = [
+      { code: 'YM_OUT', name: '楊梅出廠', offset: 0 },
+      { code: 'HC_IN', name: '新竹入廠', offset: 30 },
+      { code: 'HC_WH', name: '新竹庫房', offset: 45 },
+      { code: 'HC_OUT', name: '新竹出廠', offset: 60 },
+      { code: 'YM_IN', name: '楊梅入廠', offset: 90 },
+      { code: 'YM_ENGINE', name: '楊梅卸引擎', offset: 100 },
+      { code: 'YM_CAB', name: '楊梅裝車頭', offset: 110 }
+    ]
+
+    const tableRowsHtml = CONTROL_POINTS.map(cp => {
+      const plannedTimeDisplay = isNoTrip || !homeData.planDeparture
+        ? '---'
+        : addMinutesToTime(homeData.planDeparture, cp.offset)
+
+      const rawReportedTime = completedEventsMap.get(cp.code)
+      const reportedTimeDisplay = rawReportedTime ? formatTime24(rawReportedTime) : '---'
+
+      const isCompleted = completedEventsMap.has(cp.code)
+      const isNext = !isDayEnd && !isNoTrip && (cp.code === homeData.nextEventCode || (!completedEventsMap.size && cp.code === 'YM_OUT'))
+
+      let normalBtnHtml = ''
+      let abnormalBtnHtml = ''
+      let rowClass = ''
+
+      if (isNoTrip) {
+        normalBtnHtml = `<button class="btn btn-sm btn-secondary" disabled style="opacity:0.5; cursor:not-allowed;">待前序</button>`
+        abnormalBtnHtml = '---'
+      } else if (isCompleted || isDayEnd) {
+        normalBtnHtml = `<button class="btn btn-sm btn-success-disabled" disabled>✓ 已回報</button>`
+        abnormalBtnHtml = '---'
+      } else {
+        // Node is NOT reported yet: abnormal report button is ALWAYS present
+        abnormalBtnHtml = `<button class="btn btn-sm btn-secondary btn-abnormal-node" data-code="${cp.code}">[異常回報]</button>`
+
+        if (isNext) {
+          rowClass = 'row-current'
+          normalBtnHtml = `<button class="btn btn-sm btn-primary btn-report-node" data-code="${cp.code}">[回報]</button>`
+        } else {
+          normalBtnHtml = `<button class="btn btn-sm btn-secondary" disabled style="opacity:0.5; cursor:not-allowed;">待前序</button>`
+        }
+      }
+
+      return `
+        <tr class="${rowClass}">
+          <td><strong>${cp.name}</strong></td>
+          <td><code>${plannedTimeDisplay}</code></td>
+          <td><code>${reportedTimeDisplay}</code></td>
+          <td>${normalBtnHtml}</td>
+          <td>${abnormalBtnHtml}</td>
+        </tr>
+      `
+    }).join('')
 
     container.innerHTML = `
       <div class="driver-card-header">
         <div class="driver-info">
           <h2>${homeData.truckNo} (${homeData.truckName || homeData.truckNo}) ｜ 司機：${homeData.driverName}</h2>
         </div>
-        <div class="status-pill status-${homeData.exceptionFlag ? 'red' : (isNoTrip ? 'yellow' : 'green')}">
-          ${homeData.exceptionFlag ? `⚠️ ${homeData.exceptionType || '作業異常'}` : `🟢 ${statusText}`}
-        </div>
+        ${statusPillHtml}
       </div>
 
       <div class="driver-status-body margin-top">
@@ -1987,29 +2023,70 @@ async function renderDriverHome() {
           <div class="metric-box"><span class="label">司機：</span><strong class="value">${homeData.driverName}</strong></div>
           <div class="metric-box"><span class="label">今日趟次：</span><strong class="value">${tripProgressText}</strong></div>
           <div class="metric-box"><span class="label">計畫出發：</span><strong class="value">${planDepartureTimeStr}</strong></div>
-          <div class="metric-box"><span class="label">目前狀態：</span><strong class="value text-success">${statusText}</strong></div>
-          <div class="metric-box"><span class="label">最近回報：</span><strong class="value">${lastEventDisplay}</strong></div>
         </div>
 
-        <div class="next-node-box margin-top">
-          <span class="label">下一預期作業節點：</span>
-          <strong class="value text-primary">${nextNodeInfo}</strong>
-        </div>
+        <div id="driver-report-msg" class="msg-box margin-top" style="display:none;"></div>
 
-        ${homeData.exceptionFlag ? `<div class="msg-box error margin-top">⚠️ 異常訊息：${homeData.exceptionType || '超時未回報或掃碼順序不符'}</div>` : ''}
-
-        <div class="driver-actions margin-top">
-          <button id="open-qr-scan-btn" class="btn btn-primary btn-block btn-lg" ${homeData.hasTrip === false ? 'disabled style="opacity:0.5;cursor:not-allowed;"' : ''}>📷 掃描 QR Code / 節點回報</button>
+        <div class="driver-progress-table-card margin-top">
+          <div class="section-title-box">
+            <h3>作業進度</h3>
+          </div>
+          ${isNoTrip ? `
+            <div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">
+              ℹ 今日無排程，無需進行節點回報
+            </div>
+          ` : `
+            <div class="table-responsive">
+              <table class="driver-node-table">
+                <thead>
+                  <tr>
+                    <th style="width: 25%;">管制點</th>
+                    <th style="width: 15%;">計畫時間</th>
+                    <th style="width: 15%;">回報時間</th>
+                    <th style="width: 22%;">回報按鈕</th>
+                    <th style="width: 23%;">異常回報</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${tableRowsHtml}
+                </tbody>
+              </table>
+            </div>
+          `}
         </div>
       </div>
     `
-    const openQrScanBtn = document.querySelector('#open-qr-scan-btn')
-    if (openQrScanBtn && homeData.hasTrip !== false) {
-      openQrScanBtn.addEventListener('click', () => {
-        const qrModal = document.querySelector('#qr-modal')
-        if (qrModal) qrModal.classList.add('active')
+
+    // Bind normal report node buttons
+    container.querySelectorAll('.btn-report-node').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const eventCode = e.currentTarget.getAttribute('data-code')
+        if (!eventCode) return
+        
+        container.querySelectorAll('.btn-report-node, .btn-abnormal-node').forEach(b => {
+          b.disabled = true
+        })
+        e.currentTarget.textContent = '回報中...'
+
+        await handleScanCode(eventCode, false, false)
       })
-    }
+    })
+
+    // Bind abnormal report node buttons
+    container.querySelectorAll('.btn-abnormal-node').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const eventCode = e.currentTarget.getAttribute('data-code')
+        if (!eventCode) return
+        
+        container.querySelectorAll('.btn-report-node, .btn-abnormal-node').forEach(b => {
+          b.disabled = true
+        })
+        e.currentTarget.textContent = '回報中...'
+
+        await handleScanCode(eventCode, false, true)
+      })
+    })
+
   } catch (err) {
     console.error('[DEBUG UI LOGIN] renderDriverHome error:', err.message)
     container.innerHTML = `
@@ -2024,29 +2101,53 @@ async function renderDriverHome() {
   }
 }
 
-// QR Code Scanning Trigger Logic (Role Guarded for DRIVER role only)
-async function handleScanCode(eventCode, forceAccept = false) {
-  const msgBox = document.querySelector('#qr-scan-msg')
+// Driver Node Event Reporting Logic (Role Guarded for DRIVER role only)
+async function handleScanCode(eventCode, forceAccept = false, isAbnormalClick = false) {
+  const msgBox = document.querySelector('#driver-report-msg')
   
   if (!currentProfile || currentProfile.role !== 'DRIVER') {
     if (msgBox) {
+      msgBox.style.display = 'block'
       msgBox.className = 'msg-box error'
-      msgBox.textContent = '❌ 權限被拒：僅有司機 (DRIVER) 身分可以使用作業節點 QR Code 掃描與回報'
+      msgBox.textContent = '❌ 權限被拒：僅有司機 (DRIVER) 身分可以進行作業節點回報'
     }
     return
   }
 
   if (!EVENT_CODES[eventCode]) {
     if (msgBox) {
+      msgBox.style.display = 'block'
       msgBox.className = 'msg-box error'
-      msgBox.textContent = '❌ 無效的 QR Code (拒絕執行非 7 合法節點之 URL/Script Payload)'
+      msgBox.textContent = '❌ 無效的作業節點代碼'
     }
     return
   }
 
+  // If driver explicitly clicked [異常回報] button (even on nextEventCode), force confirmation modal first
+  if (isAbnormalClick && !forceAccept) {
+    if (msgBox) msgBox.style.display = 'none'
+    pendingOutOfSeqCode = eventCode
+
+    let expectedCode = 'YM_OUT'
+    try {
+      const hData = await getDriverHome()
+      expectedCode = hData.nextEventCode || 'YM_OUT'
+    } catch (e) {}
+
+    const expectedText = document.querySelector('#expected-node-text')
+    const actualText = document.querySelector('#actual-node-text')
+    if (expectedText) expectedText.textContent = (EVENT_CODES[expectedCode] ? EVENT_CODES[expectedCode].name : expectedCode)
+    if (actualText) actualText.textContent = (EVENT_CODES[eventCode] ? EVENT_CODES[eventCode].name : eventCode) + ' (異常強制)'
+
+    const confirmModal = document.querySelector('#confirm-modal')
+    if (confirmModal) confirmModal.classList.add('active')
+    return
+  }
+
   if (msgBox) {
+    msgBox.style.display = 'block'
     msgBox.className = 'msg-box loading'
-    msgBox.textContent = `處理中 (${eventCode})...`
+    msgBox.textContent = `處理中 (${SHORT_EVENT_LABELS[eventCode] || eventCode})...`
   }
 
   try {
@@ -2055,17 +2156,14 @@ async function handleScanCode(eventCode, forceAccept = false) {
     if (res.success) {
       if (msgBox) {
         msgBox.className = 'msg-box success'
-        msgBox.textContent = res.alreadyProcessed ? `ℹ 事件先前已成功處理過 (${eventCode})` : `✅ 回報成功！節點：${eventCode}`
+        msgBox.textContent = res.alreadyProcessed ? `ℹ 事件先前已成功處理過 (${SHORT_EVENT_LABELS[eventCode] || eventCode})` : `✅ 回報成功！節點：${SHORT_EVENT_LABELS[eventCode] || eventCode}`
       }
-      setTimeout(() => {
-        const qrModal = document.querySelector('#qr-modal')
-        if (qrModal) qrModal.classList.remove('active')
+      setTimeout(async () => {
         if (msgBox) msgBox.style.display = 'none'
-        renderApp()
-      }, 1000)
+        await renderDriverHome()
+      }, 500)
     } else if (res.requiresConfirm) {
-      const qrModal = document.querySelector('#qr-modal')
-      if (qrModal) qrModal.classList.remove('active')
+      if (msgBox) msgBox.style.display = 'none'
       pendingOutOfSeqCode = eventCode
       const expectedText = document.querySelector('#expected-node-text')
       const actualText = document.querySelector('#actual-node-text')
@@ -2078,12 +2176,14 @@ async function handleScanCode(eventCode, forceAccept = false) {
         msgBox.className = 'msg-box error'
         msgBox.textContent = `❌ [${res.errorCode || 'ERROR'}] ${res.message}`
       }
+      document.querySelectorAll('.btn-report-node, .btn-abnormal-node').forEach(b => { b.disabled = false })
     }
   } catch (err) {
     if (msgBox) {
       msgBox.className = 'msg-box error'
       msgBox.textContent = `❌ 錯誤: ${err.message}`
     }
+    document.querySelectorAll('.btn-report-node, .btn-abnormal-node').forEach(b => { b.disabled = false })
   }
 }
 

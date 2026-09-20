@@ -1,4 +1,5 @@
 import { supabase } from '../config/supabase.js'
+import { getTaipeiYMD } from '../utils/dateUtils.js'
 
 /**
  * Batch Create Trip Plans (Excel V1.0)
@@ -146,7 +147,7 @@ export async function getLogisticsTodayStatus() {
   const { data: statuses, error: sErr } = await supabase.from('trip_status').select('*')
   if (sErr) throw sErr
 
-  const { data: plans, error: pErr } = await supabase.from('trip_plan').select('*').eq('plan_date', new Date().toISOString().split('T')[0]).order('trip_no')
+  const { data: plans, error: pErr } = await supabase.from('trip_plan').select('*').eq('plan_date', getTaipeiYMD()).order('trip_no')
   if (pErr) throw pErr
 
   return { trucks, statuses, plans }
@@ -157,7 +158,8 @@ export async function getLogisticsTodayStatus() {
  * Fetch Weekly Trip Plan (Monday to Saturday)
  */
 export async function getWeeklyTripPlan(weekStartDate) {
-  const endDate = new Date(new Date(weekStartDate).getTime() + 5 * 86400000).toISOString().split('T')[0]
+  const startDateObj = new Date(`${weekStartDate}T00:00:00+08:00`)
+  const endDate = getTaipeiYMD(new Date(startDateObj.getTime() + 5 * 86400000))
 
   const { data, error } = await supabase
     .from('trip_plan')
